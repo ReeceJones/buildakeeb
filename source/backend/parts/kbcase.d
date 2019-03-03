@@ -14,9 +14,7 @@ public:
     {
         super("build-a-keeb-parts", "cases");
     }
-    @property ref string formFactor() { return _formFactor; }
-    @property ref string[] compatibilityClass() { return _compatibilityClass; }
-    @property ref string[] layoutSupport() { return _layoutSupport; }
+
     this(string[] tags, PartIdentification partId, ProductLink[] productLinks, 
             string[] images, string description, uint amount,
             string formFactor, string[] compatibilityClass, string[] layoutSupport)
@@ -37,6 +35,11 @@ public:
         Bson result;
         super("build-a-keeb-parts", "cases", link, result);
     }
+
+    @property ref string formFactor() { return _formFactor; }
+    @property ref string[] compatibilityClass() { return _compatibilityClass; }
+    @property ref string[] layoutSupport() { return _layoutSupport; }
+
     override Bson serialize()
     {
         auto bson = this.defaultBson();
@@ -52,13 +55,3 @@ private:
     string[] _layoutSupport;
 }
 
-unittest
-{
-    writeln("creating case object");
-    auto accessory = new KeyboardCase(["o-rings", "silent"],
-                        PartIdentification(["wasdkeyboards"], "unknown", "0.2mm O-rings", [Configuration("color", ["red", "blue"])]),
-                        [ProductLink("wadkeyboards.com", "I cant be bothered", 3.45)],
-                        ["I really cant be bothered"], "# O-rings\nOrings are cool but also bad", 
-                        1,
-                        "60%", ["universal", "tofu"], ["wkl", "hhkb", "ansi", "iso"]);
-}

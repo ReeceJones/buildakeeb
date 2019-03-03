@@ -49,12 +49,3 @@ private:
     string[string] _specifications;
 }
 
-unittest
-{
-    writeln("creating accessory object");
-    auto accessory = new KeyboardAccessory(["o-rings", "silent"],
-                        PartIdentification(["wasdkeyboards"], "unknown", "0.2mm O-rings", [Configuration("color", ["red", "blue"])]),
-                        [ProductLink("wadkeyboards.com", "I cant be bothered", 3.45)],
-                        ["I really cant be bothered"], "# O-rings\nOrings are cool but also bad", 
-                        1, "accessory/o-rings", ["":""]);
-}
