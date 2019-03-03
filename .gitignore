@@ -1,0 +1,15 @@
+.dub
+docs.json
+__dummy.html
+docs/
+buildakeeb.so
+buildakeeb.dylib
+buildakeeb.dll
+buildakeeb.a
+buildakeeb.lib
+buildakeeb-test-*
+*.exe
+*.o
+*.obj
+*.lst
+buildakeeb
