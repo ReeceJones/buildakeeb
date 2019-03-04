@@ -3,10 +3,11 @@ module backend.parts.part;
 
 import vibe.data.bson;
 import vibe.d;
-import std.uuid;
-import std.regex;
-import std.algorithm: map;
+import std.uuid: randomUUID;
+import std.regex: regex, replaceAll;
+import std.algorithm: map, fold;
 import std.array: array;
+import std.conv: text;
 
 struct Configuration
 {
@@ -62,6 +63,7 @@ public:
         MongoCollection col = client.getCollection(_db ~ "." ~ _collection);
 
         result = col.findOne(Bson(["link" : Bson(link)]));
+        this.applyDefault(result);
     }
     /// Create a new keyboard part that doesn't already exist
     this(string db, string collection, string[] tags, PartIdentification partId, ProductLink[] productLinks, 
@@ -136,11 +138,12 @@ public:
         Query the database for information about this part.
         returns: Bson object containing part data.
     +/
-    Bson pull()
+    void pull()
     {
         MongoClient client = connectMongoDB("127.0.0.1");
         MongoCollection collection = client.getCollection(_db ~ "." ~ _collection);
-        return collection.findOne(Bson(["uuid": Bson(_uuid)]));
+        auto bson = collection.findOne(Bson(["uuid": Bson(_uuid)]));
+        this.apply(bson);
     }
     @property ref string[] tags() { return _tags; }                         /// 
     @property ref PartIdentification partId() { return _partId; }           /// 
@@ -154,9 +157,13 @@ public:
     void updateLink()
     {
         string link = _partId.manufacturer ~ "/" ~ _partId.name;
-        link = link.replace(regex("[ ]", "g"), "_"); // replace spaces with underscores
-        link = link.replace(regex("[^a-zA-Z0-9_/]", "g"), ""); // remove anything that isn't a character, digit, or underscore
+        link = link.replaceAll(regex("[ ]", "g"), "_"); // replace spaces with underscores
+        link = link.replaceAll(regex("[^a-zA-Z0-9_/]", "g"), ""); // remove anything that isn't a character, digit, or underscore
         _link = link;
+    }
+    override string toString()
+    {
+        return baseString() ~ "\n}";
     }
 protected:
     string[]            _tags;          /// Tags of the object
@@ -166,6 +173,9 @@ protected:
     string              _description;   /// Description of the part in markdown format
     uint                _amount;        /// The amount of this part...Used for builds
     string              _link;          /// Used to query database and be urls
+
+    void apply(Bson bson) {}
+
     Bson defaultBson()
     {
         // all the stuff we can do easily
@@ -197,6 +207,72 @@ protected:
             ])).array
         );
         return bson;
+    }
+    void applyDefault(Bson bson)
+    {
+        // tags are easy
+        // _tags = bson["tags"].map!(a => cast(string)a).array;
+        auto tgs = bson["tags"];
+        for (int i = 0; i < tgs.length; i++)
+            _tags ~= cast(string)tgs[i];
+        // partId not so much
+        auto ven = bson["partId"]["vendors"];
+        string[] vendors;
+        for (int i = 0; i < ven.length; i++)
+            vendors ~= cast(string)ven[i];
+
+        auto conf = bson["partId"]["configurations"];
+        Configuration[] configurations;
+        for (int i = 0; i < conf.length; i++)
+        {
+            auto opts = conf[i]["options"];
+            string[] options;
+            for (int j = 0; j < opts.length; j++)
+                options ~= cast(string)opts[i];
+            configurations ~= Configuration(cast(string)conf[i]["field"], options);
+        }
+        
+        _partId = PartIdentification(
+            vendors,
+            cast(string)bson["partId"]["manufacturer"],
+            cast(string)bson["partId"]["name"],
+            configurations
+        );
+        // do product links
+        // _productLinks = bson["productLinks"].map!(
+        //     pl => ProductLink(cast(string)pl["website"], cast(string)pl["url"], cast(string)pl["price"])
+        // ).array;
+        auto pls = bson["productLinks"];
+        for (int i = 0; i < pls.length; i++)
+            _productLinks ~= ProductLink(cast(string)pls[i]["website"], cast(string)pls[i]["url"], cast(double)pls[i]["price"]);
+        // do images
+        auto imgs = bson["images"];
+        for (int i = 0; i < imgs.length; i++)
+            _images ~= cast(string)imgs[i];
+        // _images = bson["images"].map!(i => cast(string)i).array;
+        _description = cast(string)bson["description"];
+        _amount = cast(uint)cast(int)bson["amount"];
+        _link = cast(string)bson["link"];
+
+        _uuid = cast(string)bson["uuid"];
+    }
+    string baseString()
+    {
+        return `{
+    "uuid": ` ~ _uuid ~ `
+    "tags": ` ~ tags.text ~ `
+    "partId": {
+        "vendors": ` ~ _partId.vendors.text ~ `
+        "manufacturer": ` ~ _partId.manufacturer ~ `
+        "name": ` ~ _partId.name ~ `
+        "configurations": ` ~ _partId.configurations.fold!((a,b) => a ~= " Configuration(" ~ b.field ~ ", " ~ b.options.text ~ "), ")("[")[0..$-2] ~ " ]" ~ `
+    }
+    "productLinks": [
+` ~ _productLinks.fold!((a, b) => a ~= "\t\tProductLink(" ~ b.website ~ ", " ~ b.url ~ ", " ~ b.price.text ~ ")\n")("") ~`\t]
+    "images": ` ~ _images.text ~ `
+    "description": ` ~ _description ~ `
+    "amount": ` ~ _amount.text ~ `
+    "link": ` ~ _link;
     }
 private:
     string _db, _collection; /// Database and collection

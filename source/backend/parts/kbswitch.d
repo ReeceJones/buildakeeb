@@ -4,6 +4,7 @@ import backend.parts.part;
 import vibe.data.bson;
 import std.algorithm: map;
 import std.array: array;
+import std.conv: text;
 
 import std.stdio;
 
@@ -52,6 +53,8 @@ public:
     {
         Bson result;
         super("build-a-keeb-parts", "switches", link, result);
+        
+        this.applyLocal(result);
     }
 
     @property ref string[] forceCurves() { return _forceCurves; }
@@ -77,6 +80,25 @@ public:
         bson["style"] = Bson(_style);
         return bson;
     }
+
+    override void apply(Bson bson)
+    {
+        this.applyDefault(bson);
+        this.applyLocal(bson);
+    }
+
+    override string toString()
+    {
+        return cast(string)(this.baseString ~ `
+    "forceCurves": ` ~ _forceCurves.text ~ `
+    "actuationForce": ` ~ _actuationForce.text ~ `
+    "bottomOutForce": ` ~ _bottomOutForce.text ~ `
+    "type": ` ~ (cast(int)_type).text ~ `
+    "smoothness": ` ~ _smoothness.text ~ `
+    "style": ` ~ _style ~ `
+}`);
+    }
+
 private:
     string[]    _forceCurves;
     int         _actuationForce;
@@ -84,6 +106,18 @@ private:
     SwitchType  _type;
     ubyte       _smoothness;
     string      _style;
+
+    void applyLocal(Bson bson)
+    {
+        auto curves = bson["forceCurves"];
+        for (int i = 0; i < curves.length; i++)
+            _forceCurves ~= cast(string)curves[i];
+        _actuationForce = cast(int)bson["actuationForce"];
+        _bottomOutForce = cast(int)bson["bottomOutForce"];
+        _type = cast(SwitchType)cast(int)bson["type"];
+        _smoothness = cast(ubyte)cast(int)bson["smoothness"];
+        _style = cast(string)bson["style"];
+    }
 }
 
 unittest
@@ -95,6 +129,8 @@ unittest
                         ["I really cant be bothered"], "# O-rings\nOrings are cool but also bad", 
                         1,
                         [], 60, 80, SwitchType.CLICKY, 4, "Mx");
+    auto p = new KeyboardSwitch("unknown/02mm_Orings");
+    p.writeln;
 }
 
 
