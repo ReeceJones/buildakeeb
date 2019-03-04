@@ -135,14 +135,14 @@ public:
         collection.update(Bson(["uuid" : Bson(_uuid)]), data, UpdateFlags.upsert);
     }
     /++
-        Query the database for information about this part.
-        returns: Bson object containing part data.
+        Query the database for information about this part. Fields are auto-updated to the values of the database.
     +/
-    void pull()
+    void pull(ref Bson bson)
     {
         MongoClient client = connectMongoDB("127.0.0.1");
+        scope(exit) client.destroy;
         MongoCollection collection = client.getCollection(_db ~ "." ~ _collection);
-        auto bson = collection.findOne(Bson(["uuid": Bson(_uuid)]));
+        bson = collection.findOne(Bson(["link": Bson(_link)]));
         this.apply(bson);
     }
     @property ref string[] tags() { return _tags; }                         /// 
@@ -211,16 +211,19 @@ protected:
     void applyDefault(Bson bson)
     {
         // tags are easy
-        // _tags = bson["tags"].map!(a => cast(string)a).array;
         auto tgs = bson["tags"];
         for (int i = 0; i < tgs.length; i++)
             _tags ~= cast(string)tgs[i];
+        
         // partId not so much
+        // find all the vendors
         auto ven = bson["partId"]["vendors"];
         string[] vendors;
         for (int i = 0; i < ven.length; i++)
             vendors ~= cast(string)ven[i];
 
+
+        // find all the partId configurations
         auto conf = bson["partId"]["configurations"];
         Configuration[] configurations;
         for (int i = 0; i < conf.length; i++)
@@ -232,24 +235,25 @@ protected:
             configurations ~= Configuration(cast(string)conf[i]["field"], options);
         }
         
+        // partId
         _partId = PartIdentification(
             vendors,
             cast(string)bson["partId"]["manufacturer"],
             cast(string)bson["partId"]["name"],
             configurations
         );
-        // do product links
-        // _productLinks = bson["productLinks"].map!(
-        //     pl => ProductLink(cast(string)pl["website"], cast(string)pl["url"], cast(string)pl["price"])
-        // ).array;
+        
+        // product links
         auto pls = bson["productLinks"];
         for (int i = 0; i < pls.length; i++)
             _productLinks ~= ProductLink(cast(string)pls[i]["website"], cast(string)pls[i]["url"], cast(double)pls[i]["price"]);
+        
         // do images
         auto imgs = bson["images"];
         for (int i = 0; i < imgs.length; i++)
             _images ~= cast(string)imgs[i];
-        // _images = bson["images"].map!(i => cast(string)i).array;
+
+        // other static stuff
         _description = cast(string)bson["description"];
         _amount = cast(uint)cast(int)bson["amount"];
         _link = cast(string)bson["link"];
