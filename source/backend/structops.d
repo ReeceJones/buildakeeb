@@ -1,6 +1,7 @@
 module backend.structops;
 
-import std.typecons: tuple;
+import std.typecons: tuple, Tuple;
+import backend.parts;
 
 /++
     Reads members of a POD struct, and returns code that allows the mixin of that struct.
@@ -23,6 +24,53 @@ string inherit(S)() if (__traits(isPOD, S))
         mix ~= a ~ typeof(__traits(getMember, S, mem)).stringof ~ " " ~ mem ~ ";";
     }
     return mix;
+}
+
+/++
+    Checks if the given struct has the database attribute.
+Params:
+    S - The struct to check;
+Returns:
+    Boolean indicating whether or not the given struct contains the database attribute.
++/
+bool hasDBAttr(S)()
+{
+    enum attributes = __traits(getAttributes, S);
+    static foreach(i, attr; attributes)
+    {
+        if (typeof(__traits(getAttributes, S)[i]).stringof == "db") return true;
+    }
+    return false;
+}
+
+/++
+    Validates that a given part struct is valid. If a part is not valid it static asserts.
++/
+void validateStruct(S)()
+{
+    static if (!hasDBAttr!S)
+        static assert(0, "missing @db attribute");
+}
+
+/++
+    Extracts elements of a db attribute
+Params:
+    S - The struct to read.
+Returns:
+    Tuple containing database and collection information.
++/
+Tuple!(string, "dbs", string, "collection") extractDBProperties(S)()
+{
+    enum attributes = __traits(getAttributes, S);
+    foreach(i, attr; attributes)
+    {
+        if (typeof(__traits(getAttributes, S)[i]).stringof == "db")
+        {
+            pragma(msg, attributes[i].stringof);
+            return Tuple!(string, "dbs", string, "collection")(__traits(getMember, attributes[i], "dbs"), __traits(getMember, attributes[i], "collection"));
+        }
+    }
+    return Tuple!(string, "dbs", string, "collection")("", "");
 }
 
 unittest

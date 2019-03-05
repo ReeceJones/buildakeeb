@@ -9,6 +9,8 @@ import std.algorithm: map, fold;
 import std.array: array;
 import std.conv: text;
 
+import backend.structops;
+
 /// A list of possible configurations for a part
 struct Configuration
 {
@@ -71,4 +73,90 @@ struct KeyboardPart
     string              uuid;
 }
 
+/++
+    Insert a part into the database if it doesn't already exist.
+Params:
+    s - The part to insert.
+Throws:
+    PartException if the part already exists
++/
+void insert(S)(S s)
+{
+    // check to make sure this is a valid struct
+    validateStruct!S;
+    
+    // insert the part
+    auto client = connectMongoDB("127.0.0.1");
+    auto dbInfo = extractDBProperties!S;
+    auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
 
+    // check to make sure there are no existing entries
+    if (collection.find!S.empty)
+    {
+        collection.insert(s);
+    }
+    else
+    {
+        throw new PartException("Cannot create part, part already exists.");
+    }
+}
+
+/++
+    Updates a struct in the database using its uuid.
+Params:
+    s - Refernce to s which will be updated.
++/
+void update(S)(ref S s)
+{
+    auto client = connectMongoDB("127.0.0.1");
+    auto dbInfo = extractDBProperties!S;
+    auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
+
+    collection.update!(Bson, S)(Bson(["uuid": Bson(s.uuid)]), s);
+}
+
+/++
+    Retrives an object from the database using struct S, and the given link.
+Params:
+    S - The struct that we want to return.
+    link - The link that we use to query the database.
+Returns:
+    Struct that contains the information retrieved from the database.
++/
+S pull(S)(string link)
+{
+    auto client = connectMongoDB("127.0.0.1");
+    auto dbInfo = extractDBProperties!S;
+    auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
+    
+    return collection.findOne!S(Bson(["link": Bson(link)]));
+}
+
+unittest
+{
+    import std.stdio; 
+    @db("build-a-keeb-parts-testing", "parts") struct TestPart
+    {
+        string[]            tags;
+        PartIdentification  partId;
+        ProductLink[]       productLinks;
+        string[]            images;
+        string              description;
+        string              link;
+        string              uuid;
+    }
+    TestPart tp = TestPart(["tag1", "tag2"], PartIdentification(["reece", "jones"], "ancestors", "human", 
+                            cast(Configuration[])[]), cast(ProductLink[])[], ["https://reece.ooo"], "# hi", 
+                            "Reece_Jones", "uuid");
+    try {
+        tp.insert();
+    }
+    catch (PartException pex) {
+        writeln(pex.msg);
+    }
+    tp.tags = ["changed", "#noregerts"];
+    tp.update;
+
+    tp = pull!TestPart("Reece_Jones");
+    assert(tp.tags == ["changed", "#noregerts"]);
+}
