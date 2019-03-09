@@ -1,9 +1,14 @@
 module backend.parts.kbcase;
 
 import backend.parts.part;
-import vibe.data.bson;
-import std.algorithm: map;
-import std.array: array;
+import backend.structops;
 
-import std.stdio;
+/// A keyboard case
+struct KeyboardCase
+{
+	mixin(inherit!KeyboardPart);
+	string formFactor;		/// The form factor that this case is
+	string[] compatibilityClass;	/// The classes this case is compatible with
+	string[] layoutSupport;		/// the layouts this case supports
+}
 

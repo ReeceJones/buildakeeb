@@ -5,9 +5,7 @@ import vibe.data.bson;
 import vibe.d;
 import std.uuid: randomUUID;
 import std.regex: regex, replaceAll;
-import std.algorithm: map, fold;
 import std.array: array;
-import std.conv: text;
 
 import backend.structops;
 
@@ -123,7 +121,7 @@ Params:
 Returns:
     Struct that contains the information retrieved from the database.
 +/
-S pull(S)(string link)
+S find(S)(string link)
 {
     auto client = connectMongoDB("127.0.0.1");
     auto dbInfo = extractDBProperties!S;
@@ -132,9 +130,26 @@ S pull(S)(string link)
     return collection.findOne!S(Bson(["link": Bson(link)]));
 }
 
+/++
+	Update an objects state by querying the database for an object using its uuid.
+Params:
+	s - Refernece to the struct that we are updating.
++/
+void pull(S)(ref S s)
+{
+    auto client = connectMongoDB("127.0.0.1");
+    auto db Info = extractDBProperties!S;
+    auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
+
+    string uuid  = s.uuid;
+
+    s = collection.findOne!S(Bson(["uuid": Bson(uuid)]));
+}
+
 unittest
 {
-    import std.stdio; 
+    import std.stdio: writeln;
+
     @db("build-a-keeb-parts-testing", "parts") struct TestPart
     {
         string[]            tags;

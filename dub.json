@@ -1,7 +1,7 @@
 {
 	"description": "keyboard parts",
 	"dependencies": {
-		"vibe-d": "~>0.8.4"
+		"vibe-d":"~>0.8.4"
 	},
 	"authors": [
 		"Reece Jones"
