@@ -47,35 +47,5 @@ BuildResult verifyFormFactor(KeyboardBuild kbbuild)
 	return BuildResult(true);
 }
 
-// test baseAddr maths
-unittest
-{
-	import std.stdio: writeln;
-    import std.conv: text;
-    import core.stdc.string: memcpy;
-    import core.stdc.stdlib: malloc, free;
 
-	pragma(msg, "KeyboardPart size: " ~ KeyboardPart.sizeof.text);
-	pragma(msg, "KeyboardPCB size: " ~ KeyboardPCB.sizeof.text);
-	pragma(msg, "KeyboardPCB adjusted size: " ~ (KeyboardPCB.sizeof - KeyboardPart.sizeof).text);
-    /*
-        64 bytes big with 4 elements?
-        so....
-        string[] -> ulong length, ulong ptr ?
-    */
-    KeyboardPCB* pcb = new KeyboardPCB;
-    scope(exit) pcb.destroy;
-    pcb.formFactor = ["foo", "bar"];
-    writeln("addr:\t", &pcb);
-    struct Array(T)
-    {
-        size_t len;
-        T* ptr;
-    }
-    static assert((Array!string).sizeof == 16);
-    Array!string *formFactor = cast(Array!string*)&pcb.formFactor;
-    writeln(formFactor);
-    writeln(*formFactor);
-    writeln(cast(ulong)formFactor - cast(ulong)pcb);
-}
 

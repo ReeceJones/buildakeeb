@@ -66,24 +66,37 @@ Tuple!(string, "dbs", string, "collection") extractDBProperties(S)()
     {
         if (typeof(__traits(getAttributes, S)[i]).stringof == "db")
         {
-            pragma(msg, attributes[i].stringof);
             return Tuple!(string, "dbs", string, "collection")(__traits(getMember, attributes[i], "dbs"), __traits(getMember, attributes[i], "collection"));
         }
     }
     return Tuple!(string, "dbs", string, "collection")("", "");
 }
 
+
+
+/// User defined attribute that is used to determine which members we want to take
+enum field = "field";
+
 /++
-    Used to generate a struct from the members of a class.
+    Used to generate a struct from the members of a class. When making a class, all fields that you want to be placed in the struct, must be marked with the @field property.
+    TODO: pass through attributes
 +/
 string toStruct(C)()
 {
-    string s = "struct " ~ C.stringof ~ "_s {";
-    enum attributes = __traits(derivedMembers, C);
-    foreach(i, attr; attributes)
+	// s is the string that will be the source Code of the struct;
+    string s = "struct Struct {";
+    enum members = __traits(derivedMembers, C);
+    static foreach(i, member; members)
     {
-        if (attr[0] != '_')
-            s ~= typeof(__traits(getMember, C, attr)).stringof ~ " " ~ attr ~ ";";
+	// check to make sure that they have the field attribute
+	static if (member != "this" && member != "~this")
+	{
+		static foreach(attr; __traits(getAttributes, __traits(getMember, C, member)))
+		{
+			if (attr == "field")
+				s ~= typeof(__traits(getMember, C, member)).stringof ~ " " ~ member ~ ";";
+		}
+	}
     }
     return s ~ "}";
 }
@@ -91,6 +104,7 @@ string toStruct(C)()
 
 unittest
 {
+	import std.stdio: writeln;
     struct foo
     {
         string s;
@@ -109,4 +123,19 @@ unittest
     pragma(msg, __traits(allMembers, Bar));
     assert(__traits(allMembers, Bar) == tuple("a", "b", "c"));
     assert(__traits(getAttributes, __traits(getMember, Bar, "a")).stringof == "tuple(foo(\"bar\"))");
+
+    class Foo1
+    {
+        this()
+        {
+            s = "this called";
+            i = 50;
+        }
+        int betternotshowup;
+        @field string s;
+        @field int i;
+        mixin(toStruct!Foo1);
+    }
+    Foo1.Struct foo1_s;
+    foo1_s.writeln;
 }

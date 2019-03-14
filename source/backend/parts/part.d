@@ -128,11 +128,12 @@ Returns:
 +/
 S find(S)(string link)
 {
+    import std.stdio: writeln;
     auto client = connectMongoDB("127.0.0.1");
     auto dbInfo = extractDBProperties!S;
     auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
     
-    return collection.findOne!S(Bson(["link": Bson(link)]));
+    return collection.findOne!(S)(Bson(["link": Bson(link)]));
 }
 
 /++
@@ -165,7 +166,7 @@ unittest
         string              link;
         string              uuid;
     }
-    TestPart tp = TestPart(["tag1", "tag2"], PartIdentification(["reece", "jones"], "ancestors", "human", 
+    TestPart tp = TestPart(["tag1", "tag2"], PartIdentification(["reece", "jones"], "ancestors", "Reece Jones", 
                             cast(Configuration[])[]), cast(ProductLink[])[], ["https://reece.ooo"], "# hi", 
                             "Reece_Jones", "uuid");
     try {
@@ -176,7 +177,7 @@ unittest
     }
     tp.tags = ["changed", "#noregerts"];
     tp.update!TestPart;
-
-    tp = find!(TestPart)("Reece_Jones");
+    assert(tp.link == "Reece_Jones");
+    tp = find!(TestPart)(tp.link);
     assert(tp.tags == ["changed", "#noregerts"]);
 }
