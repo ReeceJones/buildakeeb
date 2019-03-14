@@ -73,6 +73,22 @@ Tuple!(string, "dbs", string, "collection") extractDBProperties(S)()
     return Tuple!(string, "dbs", string, "collection")("", "");
 }
 
+/++
+    Used to generate a struct from the members of a class.
++/
+string toStruct(C)()
+{
+    string s = "struct " ~ C.stringof ~ "_s {";
+    enum attributes = __traits(derivedMembers, C);
+    foreach(i, attr; attributes)
+    {
+        if (attr[0] != '_')
+            s ~= typeof(__traits(getMember, C, attr)).stringof ~ " " ~ attr ~ ";";
+    }
+    return s ~ "}";
+}
+
+
 unittest
 {
     struct foo

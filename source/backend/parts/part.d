@@ -3,7 +3,6 @@ module backend.parts.part;
 
 import vibe.data.bson;
 import vibe.d;
-import std.uuid: randomUUID;
 import std.regex: regex, replaceAll;
 import std.array: array;
 
@@ -106,6 +105,12 @@ Params:
 +/
 void update(S)(ref S s)
 {
+    // update the link so that it is formatted correctly
+    //s.link = s.name.replaceAll(regex("[ ]", "g"), "_").replaceAll(regex("[^a-zA-z0-9_]", "g"), "");
+	s.link = s.partId.name.replaceAll(regex("[ ]", "g"), "_").replaceAll(regex("[^a-zA-z0-9_]", "g"), "");
+    if (s.link.length > 120)
+        throw new PartException("Link length too long. Please shorten the name.");
+
     auto client = connectMongoDB("127.0.0.1");
     auto dbInfo = extractDBProperties!S;
     auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
@@ -138,12 +143,12 @@ Params:
 void pull(S)(ref S s)
 {
     auto client = connectMongoDB("127.0.0.1");
-    auto db Info = extractDBProperties!S;
+    auto dbInfo = extractDBProperties!S;
     auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
 
     string uuid  = s.uuid;
 
-    s = collection.findOne!S(Bson(["uuid": Bson(uuid)]));
+    s = collection.findOne!(S)(Bson(["uuid": Bson(uuid)]));
 }
 
 unittest
@@ -170,8 +175,8 @@ unittest
         writeln(pex.msg);
     }
     tp.tags = ["changed", "#noregerts"];
-    tp.update;
+    tp.update!TestPart;
 
-    tp = pull!TestPart("Reece_Jones");
+    tp = find!(TestPart)("Reece_Jones");
     assert(tp.tags == ["changed", "#noregerts"]);
 }

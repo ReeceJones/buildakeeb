@@ -7,7 +7,7 @@ import backend.structops;
 struct KeyboardCase
 {
 	mixin(inherit!KeyboardPart);
-	string formFactor;		/// The form factor that this case is
+	string[] formFactor;		/// The form factor that this case is
 	string[] compatibilityClass;	/// The classes this case is compatible with
 	string[] layoutSupport;		/// the layouts this case supports
 }
