@@ -79,13 +79,12 @@ enum field = "field";
 
 /++
     Used to generate a struct from the members of a class. When making a class, all fields that you want to be placed in the struct, must be marked with the @field property.
-    TODO: pass through attributes
 +/
 string toStruct(C)()
 {
 	// s is the string that will be the source Code of the struct;
     string s = "struct Struct {";
-    enum members = __traits(derivedMembers, C);
+    enum members = __traits(allMembers, C);
     static foreach(i, member; members)
     {
 	// check to make sure that they have the field attribute
@@ -136,6 +135,18 @@ unittest
         @field int i;
         mixin(toStruct!Foo1);
     }
-    Foo1.Struct foo1_s;
-    foo1_s.writeln;
+    class Foo2 : Foo1
+    {
+        this()
+        {
+            super();
+            j = 50;
+        }
+        @field int j;
+        mixin(toStruct!Foo2);
+    }
+    foreach(member; __traits(allMembers, Foo2.Struct))
+    {
+        writeln(member);
+    }
 }
