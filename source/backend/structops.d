@@ -83,19 +83,25 @@ enum field = "field";
 string toStruct(C)()
 {
 	// s is the string that will be the source Code of the struct;
-    string s = "struct Struct {";
+    string s = "";
+    static foreach(i, attr; __traits(getAttributes, C))
+    {
+        s = "@" ~ __traits(getAttributes, C)[i].stringof ~ " ";
+    }
+    
+    s ~= "struct Struct {";
     enum members = __traits(allMembers, C);
     static foreach(i, member; members)
     {
-	// check to make sure that they have the field attribute
-	static if (member != "this" && member != "~this")
-	{
-		static foreach(attr; __traits(getAttributes, __traits(getMember, C, member)))
-		{
-			if (attr == "field")
-				s ~= typeof(__traits(getMember, C, member)).stringof ~ " " ~ member ~ ";";
-		}
-	}
+        // check to make sure that they have the field attribute
+        static if (member != "this" && member != "~this")
+        {
+            static foreach(attr; __traits(getAttributes, __traits(getMember, C, member)))
+            {
+                if (attr == "field")
+                    s ~= typeof(__traits(getMember, C, member)).stringof ~ " " ~ member ~ ";";
+            }
+        }
     }
     return s ~ "}";
 }

@@ -52,22 +52,81 @@ class PartException : Exception
 /++
     Structure that represents a base KeyboardPart Object. Child structs should expand on this using the inherit function from backend.structops.
 +/
-struct KeyboardPart
+class KeyboardPart
 {
+public:
+    /// Default constructor
+    this(string[] tags, PartIdentification partId, ProductLink[] productLinks, string[] images, string description,
+            string link, string uuid)
+    {
+        this.tags = tags;
+        this.partId = partId;
+        this.productLinks = productLinks;
+        this.images = images;
+        this.description = description;
+        this.link = link;
+        this.uuid = uuid;
+    }
+
+    /// Default constructor
+    this()
+    {
+
+    }
+
+    /// construct using our Struct
+    this(S)(S s)
+    {
+        // make sure that we don't have anything we might not want
+        static assert(__traits(isPOD, S), "Invalid struct: Struct either has non-field elements, or is not a KeyboardPart.Struct"); 
+
+        // set all elements
+        static foreach(i, member; __traits(allMembers, S))
+        {
+            mixin("this." ~ member ~ " = s." ~ member ~ ";");
+        }
+    }
+
     /// Part Tags
-    string[]            tags;
+    @field string[]            tags;
     /// Information used to identify the part
-    PartIdentification  partId;
+    @field PartIdentification  partId;
     /// Links that contain additional information about an object, as well as pricing.
-    ProductLink[]       productLinks;
+    @field ProductLink[]       productLinks;
     /// Links to images of a part.
-    string[]            images;
+    @field string[]            images;
     /// Description of the part in markdown format.
-    string              description;
+    @field string              description;
     /// Link to the part from the website. Used to navigate and search for parts internally.
-    string              link;
+    @field string              link;
     /// UUID of an object used to update it in case it's link changes.
-    string              uuid;
+    @field string              uuid;
+
+    // generate struct used for querying database
+    mixin(toStruct!KeyboardPart);
+}
+
+
+/// Fill a S.Struct using the fields of S
+S.Struct serialize(S)(S c)
+{
+    S.Struct s;
+    static foreach(member; __traits(allMembers, S.Struct))
+    {
+        mixin("s." ~ member ~ " = c." ~ member ~ ";");
+    }
+    return s;
+}
+
+/// Fill a S using the fields of S.Struct
+S deserialize(S)(S.Struct s)
+{
+    S c = new S;
+    static foreach(member; __traits(allMembers, S.Struct))
+    {
+        mixin("c." ~ member ~ " = s." ~ member ~ ";");
+    }
+    return c;
 }
 
 /++
@@ -80,22 +139,18 @@ Throws:
 void insert(S)(S s)
 {
     // check to make sure this is a valid struct
-    validateStruct!S;
+    validateStruct!(S.Struct);
     
     // insert the part
     auto client = connectMongoDB("127.0.0.1");
-    auto dbInfo = extractDBProperties!S;
+    auto dbInfo = extractDBProperties!(S.Struct);
     auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
 
     // check to make sure there are no existing entries
-    if (collection.find!S.empty)
-    {
-        collection.insert(s);
-    }
+    if (collection.findOne(Bson(["link": Bson(s.link)])).empty)
+        collection.insert!(S.Struct)(s.serialize);
     else
-    {
         throw new PartException("Cannot create part, part already exists.");
-    }
 }
 
 /++
@@ -110,12 +165,18 @@ void update(S)(ref S s)
 	s.link = s.partId.name.replaceAll(regex("[ ]", "g"), "_").replaceAll(regex("[^a-zA-z0-9_]", "g"), "");
     if (s.link.length > 120)
         throw new PartException("Link length too long. Please shorten the name.");
+    
+
 
     auto client = connectMongoDB("127.0.0.1");
-    auto dbInfo = extractDBProperties!S;
+    auto dbInfo = extractDBProperties!(S.Struct);
     auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
 
-    collection.update!(Bson, S)(Bson(["uuid": Bson(s.uuid)]), s);
+    auto r = collection.findOne!(S.Struct)(Bson(["link": Bson(s.link)]));
+    if (r == cast(S.Struct)0 || r.uuid == s.uuid) // This uuid already owns the link or the link isn't taken
+        collection.update!(Bson, S.Struct)(Bson(["uuid": Bson(s.uuid)]), s.serialize);
+    else
+        throw new PartException("Cannot update part, part link already exists.");
 }
 
 /++
@@ -128,47 +189,56 @@ Returns:
 +/
 S find(S)(string link)
 {
-    import std.stdio: writeln;
     auto client = connectMongoDB("127.0.0.1");
-    auto dbInfo = extractDBProperties!S;
+    auto dbInfo = extractDBProperties!(S.Struct);
     auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
     
-    return collection.findOne!(S)(Bson(["link": Bson(link)]));
+    return (cast(S.Struct)collection.findOne!(S.Struct)(Bson(["link": Bson(link)]))).deserialize!S;
 }
 
-/++
-	Update an objects state by querying the database for an object using its uuid.
-Params:
-	s - Refernece to the struct that we are updating.
-+/
-void pull(S)(ref S s)
+// /++
+// 	Update an objects state by querying the database for an object using its uuid.
+// Params:
+// 	s - Refernece to the struct that we are updating.
+// +/
+// void pull(S)(ref S s)
+// {
+//     auto client = connectMongoDB("127.0.0.1");
+//     auto dbInfo = extractDBProperties!S;
+//     auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
+
+//     string uuid  = s.uuid;
+
+//     s = collection.findOne!(S)(Bson(["uuid": Bson(uuid)]));
+// }
+
+// for preventing scoping issues
+version(unittest)
 {
-    auto client = connectMongoDB("127.0.0.1");
-    auto dbInfo = extractDBProperties!S;
-    auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
-
-    string uuid  = s.uuid;
-
-    s = collection.findOne!(S)(Bson(["uuid": Bson(uuid)]));
+    @db("build-a-keeb-parts-testing", "parts") class TestPart : KeyboardPart 
+    {
+        this(string[] tags, PartIdentification partId, ProductLink[] productLinks, string[] images, string description,
+            string link, string uuid, int age)
+        {
+            super(tags, partId, productLinks, images, description, link, uuid);
+            this.age = age;
+        }
+        this() {} // required for deserialization
+        @field int age;
+        mixin(toStruct!TestPart);
+    }
 }
 
 unittest
 {
     import std.stdio: writeln;
 
-    @db("build-a-keeb-parts-testing", "parts") struct TestPart
-    {
-        string[]            tags;
-        PartIdentification  partId;
-        ProductLink[]       productLinks;
-        string[]            images;
-        string              description;
-        string              link;
-        string              uuid;
-    }
-    TestPart tp = TestPart(["tag1", "tag2"], PartIdentification(["reece", "jones"], "ancestors", "Reece Jones", 
+
+    pragma(msg, __traits(getAttributes, TestPart)[0]);
+    TestPart tp = new TestPart(["tag1", "tag2"], PartIdentification(["reece", "jones"], "ancestors", "Reece Jones", 
                             cast(Configuration[])[]), cast(ProductLink[])[], ["https://reece.ooo"], "# hi", 
-                            "Reece_Jones", "uuid");
+                            "Reece_Jones", "uuid", 10);
+    writeln(tp.serialize!TestPart);
     try {
         tp.insert();
     }
@@ -178,6 +248,6 @@ unittest
     tp.tags = ["changed", "#noregerts"];
     tp.update!TestPart;
     assert(tp.link == "Reece_Jones");
-    tp = find!(TestPart)(tp.link);
-    assert(tp.tags == ["changed", "#noregerts"]);
+    auto q = find!(TestPart)(tp.link);
+    assert(q.tags == ["changed", "#noregerts"]);
 }
