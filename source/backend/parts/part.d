@@ -3,26 +3,28 @@ module backend.parts.part;
 
 import vibe.data.bson;
 import vibe.d;
-import std.uuid: randomUUID;
 import std.regex: regex, replaceAll;
-import std.algorithm: map, fold;
 import std.array: array;
-import std.conv: text;
 
+import backend.structops;
+
+/// A list of possible configurations for a part
 struct Configuration
 {
-    string field;
-    string[] options;
+    string      field; /// The specific configuration parameter name
+    string[]    options; /// list of possible configurations for this parameter
 }
 
+/// Basic Part Identification information
 struct PartIdentification
 {
     string[]            vendors;        /// The people that sell the part.
     string              manufacturer;   /// Whoever manufactures the part
     string              name;           /// The actual name of the part
-    Configuration[]    configurations; /// Map of configurations that exist for the part
+    Configuration[]     configurations; /// Map of configurations that exist for the part
 }
 
+/// Link information
 struct ProductLink
 {
     string website; /// Site name
@@ -30,6 +32,7 @@ struct ProductLink
     double price;   /// price here
 }
 
+/// Basic exception class used to throw exceptions when working with parts.
 class PartException : Exception
 {
     ///
@@ -39,242 +42,212 @@ class PartException : Exception
     }
 }
 
+/// Property that located where a part is located in the database
+@property struct db
+{
+    string dbs;         /// The database
+    string collection;  /// The collection within the database
+}
+
 /++
-    Parent class for various types of keyboard parts. Contains some DB helper functions, and 
+    Structure that represents a base KeyboardPart Object. Child structs should expand on this using the inherit function from backend.structops.
 +/
-abstract class KeyboardPart
+class KeyboardPart
 {
 public:
-    /// Create a keyboard part object with the database, and collection it is in
-    this(string db, string collection)
+    /// Default constructor
+    this(string[] tags, PartIdentification partId, ProductLink[] productLinks, string[] images, string description,
+            string link, string uuid)
     {
-        _db = db;
-        _collection = collection;
+        this.tags = tags;
+        this.partId = partId;
+        this.productLinks = productLinks;
+        this.images = images;
+        this.description = description;
+        this.link = link;
+        this.uuid = uuid;
     }
-    /// Create a keyboard part from a given link
-    /// The part should already exist
-    this(string db, string collection, string link, ref Bson result)
+
+    /// Default constructor
+    this()
     {
-        this(db, collection);
 
-        MongoClient client = connectMongoDB("127.0.0.1");
-        scope(exit) client.destroy;
-        // get our collection
-        MongoCollection col = client.getCollection(_db ~ "." ~ _collection);
-
-        result = col.findOne(Bson(["link" : Bson(link)]));
-        this.applyDefault(result);
     }
-    /// Create a new keyboard part that doesn't already exist
-    this(string db, string collection, string[] tags, PartIdentification partId, ProductLink[] productLinks, 
-            string[] images, string description, uint amount)
+
+    /// construct using our Struct
+    this(S)(S s)
     {
-        // set database
-        this(db, collection);
-        // set fields
-        _tags = tags;
-        _partId = partId;
-        _productLinks = productLinks;
-        _images = images;
-        _description = description;
-        _amount = amount;
-        _uuid = randomUUID().toString;
+        // make sure that we don't have anything we might not want
+        static assert(__traits(isPOD, S), "Invalid struct: Struct either has non-field elements, or is not a KeyboardPart.Struct"); 
 
-        // update internal link
-        this.updateLink();
-    }
-    /++ 
-        Child classes must override this method. It must return a BSON representation of any relevant fields.
-        returns: Bson object.
-    +/
-    abstract Bson serialize();
-    /++
-        Called by child classes. Ensures that no object exists already before inserting.
-    +/
-    void insert()
-    {
-        import std.stdio: writeln;
-        auto data = this.serialize();
-
-        MongoClient client = connectMongoDB("127.0.0.1");
-        scope(exit) client.destroy;
-        // get our collection
-        MongoCollection collection = client.getCollection(_db ~ "." ~ _collection);
-        
-
-        // find any existing documents with the same url
-        auto r = collection.findOne(Bson([
-            "link": data["link"]
-        ]));
-
-        // make sure we aren't inserting duplicate data
-        if (r == Bson(null))
+        // set all elements
+        static foreach(i, member; __traits(allMembers, S))
         {
-            collection.insert(data);
+            mixin("this." ~ member ~ " = s." ~ member ~ ";");
         }
-        else
+    }
+
+    /// Part Tags
+    @field string[]            tags;
+    /// Information used to identify the part
+    @field PartIdentification  partId;
+    /// Links that contain additional information about an object, as well as pricing.
+    @field ProductLink[]       productLinks;
+    /// Links to images of a part.
+    @field string[]            images;
+    /// Description of the part in markdown format.
+    @field string              description;
+    /// Link to the part from the website. Used to navigate and search for parts internally.
+    @field string              link;
+    /// UUID of an object used to update it in case it's link changes.
+    @field string              uuid;
+
+    // generate struct used for querying database
+    mixin(toStruct!KeyboardPart);
+}
+
+
+/// Fill a S.Struct using the fields of S
+S.Struct serialize(S)(S c)
+{
+    S.Struct s;
+    static foreach(member; __traits(allMembers, S.Struct))
+    {
+        mixin("s." ~ member ~ " = c." ~ member ~ ";");
+    }
+    return s;
+}
+
+/// Fill a S using the fields of S.Struct
+S deserialize(S)(S.Struct s)
+{
+    S c = new S;
+    static foreach(member; __traits(allMembers, S.Struct))
+    {
+        mixin("c." ~ member ~ " = s." ~ member ~ ";");
+    }
+    return c;
+}
+
+/++
+    Insert a part into the database if it doesn't already exist.
+Params:
+    s - The part to insert.
+Throws:
+    PartException if the part already exists
++/
+void insert(S)(S s)
+{
+    // check to make sure this is a valid struct
+    validateStruct!(S.Struct);
+    
+    // insert the part
+    auto client = connectMongoDB("127.0.0.1");
+    auto dbInfo = extractDBProperties!(S.Struct);
+    auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
+
+    // check to make sure there are no existing entries
+    if (collection.findOne(Bson(["link": Bson(s.link)])).empty)
+        collection.insert!(S.Struct)(s.serialize);
+    else
+        throw new PartException("Cannot create part, part already exists.");
+}
+
+/++
+    Updates a struct in the database using its uuid.
+Params:
+    s - Refernce to s which will be updated.
++/
+void update(S)(ref S s)
+{
+    // update the link so that it is formatted correctly
+    //s.link = s.name.replaceAll(regex("[ ]", "g"), "_").replaceAll(regex("[^a-zA-z0-9_]", "g"), "");
+	s.link = s.partId.name.replaceAll(regex("[ ]", "g"), "_").replaceAll(regex("[^a-zA-z0-9_]", "g"), "");
+    if (s.link.length > 120)
+        throw new PartException("Link length too long. Please shorten the name.");
+    
+
+
+    auto client = connectMongoDB("127.0.0.1");
+    auto dbInfo = extractDBProperties!(S.Struct);
+    auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
+
+    auto r = collection.findOne!(S.Struct)(Bson(["link": Bson(s.link)]));
+    if (r == cast(S.Struct)0 || r.uuid == s.uuid) // This uuid already owns the link or the link isn't taken
+        collection.update!(Bson, S.Struct)(Bson(["uuid": Bson(s.uuid)]), s.serialize);
+    else
+        throw new PartException("Cannot update part, part link already exists.");
+}
+
+/++
+    Retrives an object from the database using struct S, and the given link.
+Params:
+    S - The struct that we want to return.
+    link - The link that we use to query the database.
+Returns:
+    Struct that contains the information retrieved from the database.
++/
+S find(S)(string link)
+{
+    auto client = connectMongoDB("127.0.0.1");
+    auto dbInfo = extractDBProperties!(S.Struct);
+    auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
+    
+    return (cast(S.Struct)collection.findOne!(S.Struct)(Bson(["link": Bson(link)]))).deserialize!S;
+}
+
+// /++
+// 	Update an objects state by querying the database for an object using its uuid.
+// Params:
+// 	s - Refernece to the struct that we are updating.
+// +/
+// void pull(S)(ref S s)
+// {
+//     auto client = connectMongoDB("127.0.0.1");
+//     auto dbInfo = extractDBProperties!S;
+//     auto collection = client.getCollection(dbInfo.dbs ~ "." ~ dbInfo.collection);
+
+//     string uuid  = s.uuid;
+
+//     s = collection.findOne!(S)(Bson(["uuid": Bson(uuid)]));
+// }
+
+// for preventing scoping issues
+version(unittest)
+{
+    @db("build-a-keeb-parts-testing", "parts") class TestPart : KeyboardPart 
+    {
+        this(string[] tags, PartIdentification partId, ProductLink[] productLinks, string[] images, string description,
+            string link, string uuid, int age)
         {
-            throw new PartException("part already exists");
+            super(tags, partId, productLinks, images, description, link, uuid);
+            this.age = age;
         }
+        this() {} // required for deserialization
+        @field int age;
+        mixin(toStruct!TestPart);
+    }
+}
 
-    }
-    /++
-        Update the object in the database given the current state of the object.
-    +/
-    void update()
-    {
-        // serialize the fields into JSON
-        auto data = this.serialize();
-        
-        MongoClient client = connectMongoDB("127.0.0.1");
-        scope(exit) client.destroy;
-        // get our collection
-        MongoCollection collection = client.getCollection(_db ~ "." ~ _collection);
-        
-        // update
-        collection.update(Bson(["uuid" : Bson(_uuid)]), data, UpdateFlags.upsert);
-    }
-    /++
-        Query the database for information about this part.
-        returns: Bson object containing part data.
-    +/
-    void pull()
-    {
-        MongoClient client = connectMongoDB("127.0.0.1");
-        MongoCollection collection = client.getCollection(_db ~ "." ~ _collection);
-        auto bson = collection.findOne(Bson(["uuid": Bson(_uuid)]));
-        this.apply(bson);
-    }
-    @property ref string[] tags() { return _tags; }                         /// 
-    @property ref PartIdentification partId() { return _partId; }           /// 
-    @property ref ProductLink[] productLinks() { return _productLinks; }    /// 
-    @property ref string[] images() { return _images; }                     /// 
-    @property ref string description() { return _description; }             /// 
-    @property ref uint amount() { return _amount; }
-    /// NEVER REF THIS
-    @property string uuid() { return _uuid; }
-    /// Update internal link when the name changes
-    void updateLink()
-    {
-        string link = _partId.manufacturer ~ "/" ~ _partId.name;
-        link = link.replaceAll(regex("[ ]", "g"), "_"); // replace spaces with underscores
-        link = link.replaceAll(regex("[^a-zA-Z0-9_/]", "g"), ""); // remove anything that isn't a character, digit, or underscore
-        _link = link;
-    }
-    override string toString()
-    {
-        return baseString() ~ "\n}";
-    }
-protected:
-    string[]            _tags;          /// Tags of the object
-    PartIdentification  _partId;        /// Identification information about the object
-    ProductLink[]       _productLinks;  /// Links to the part
-    string[]            _images;        /// Links to images of the part
-    string              _description;   /// Description of the part in markdown format
-    uint                _amount;        /// The amount of this part...Used for builds
-    string              _link;          /// Used to query database and be urls
+unittest
+{
+    import std.stdio: writeln;
 
-    void apply(Bson bson) {}
 
-    Bson defaultBson()
-    {
-        // all the stuff we can do easily
-        pragma(msg, typeof(_tags.map!(a => Bson(a)).array).stringof);
-        auto bson = Bson([
-            "description": Bson(_description),
-            "amount": Bson(_amount),
-            "link": Bson(_link),
-            "uuid": Bson(_uuid)
-        ]);
-        bson["tags"] = _tags.map!(a => Bson(a)).array;
-        bson["images"] = _images.map!(a => Bson(a)).array;
-        bson["partId"] = Bson([
-            "manufacturer": Bson(_partId.manufacturer),
-            "name": Bson(_partId.name),
-            "vendors": Bson(_partId.vendors.map!(a => Bson(a)).array),
-            "configurations": Bson(
-                _partId.configurations.map!(conf => Bson([
-                    "field": Bson(conf.field),
-                    "options" : Bson(conf.options.map!(a => Bson(a)).array)
-                ])).array)
-        ]);
-
-        bson["productLinks"] = Bson(
-            _productLinks.map!(l => Bson([
-                "website": Bson(l.website),
-                "url": Bson(l.url),
-                "price": Bson(l.price)
-            ])).array
-        );
-        return bson;
+    pragma(msg, __traits(getAttributes, TestPart)[0]);
+    TestPart tp = new TestPart(["tag1", "tag2"], PartIdentification(["reece", "jones"], "ancestors", "Reece Jones", 
+                            cast(Configuration[])[]), cast(ProductLink[])[], ["https://reece.ooo"], "# hi", 
+                            "Reece_Jones", "uuid", 10);
+    writeln(tp.serialize!TestPart);
+    try {
+        tp.insert();
     }
-    void applyDefault(Bson bson)
-    {
-        // tags are easy
-        // _tags = bson["tags"].map!(a => cast(string)a).array;
-        auto tgs = bson["tags"];
-        for (int i = 0; i < tgs.length; i++)
-            _tags ~= cast(string)tgs[i];
-        // partId not so much
-        auto ven = bson["partId"]["vendors"];
-        string[] vendors;
-        for (int i = 0; i < ven.length; i++)
-            vendors ~= cast(string)ven[i];
-
-        auto conf = bson["partId"]["configurations"];
-        Configuration[] configurations;
-        for (int i = 0; i < conf.length; i++)
-        {
-            auto opts = conf[i]["options"];
-            string[] options;
-            for (int j = 0; j < opts.length; j++)
-                options ~= cast(string)opts[i];
-            configurations ~= Configuration(cast(string)conf[i]["field"], options);
-        }
-        
-        _partId = PartIdentification(
-            vendors,
-            cast(string)bson["partId"]["manufacturer"],
-            cast(string)bson["partId"]["name"],
-            configurations
-        );
-        // do product links
-        // _productLinks = bson["productLinks"].map!(
-        //     pl => ProductLink(cast(string)pl["website"], cast(string)pl["url"], cast(string)pl["price"])
-        // ).array;
-        auto pls = bson["productLinks"];
-        for (int i = 0; i < pls.length; i++)
-            _productLinks ~= ProductLink(cast(string)pls[i]["website"], cast(string)pls[i]["url"], cast(double)pls[i]["price"]);
-        // do images
-        auto imgs = bson["images"];
-        for (int i = 0; i < imgs.length; i++)
-            _images ~= cast(string)imgs[i];
-        // _images = bson["images"].map!(i => cast(string)i).array;
-        _description = cast(string)bson["description"];
-        _amount = cast(uint)cast(int)bson["amount"];
-        _link = cast(string)bson["link"];
-
-        _uuid = cast(string)bson["uuid"];
+    catch (PartException pex) {
+        writeln(pex.msg);
     }
-    string baseString()
-    {
-        return `{
-    "uuid": ` ~ _uuid ~ `
-    "tags": ` ~ tags.text ~ `
-    "partId": {
-        "vendors": ` ~ _partId.vendors.text ~ `
-        "manufacturer": ` ~ _partId.manufacturer ~ `
-        "name": ` ~ _partId.name ~ `
-        "configurations": ` ~ _partId.configurations.fold!((a,b) => a ~= " Configuration(" ~ b.field ~ ", " ~ b.options.text ~ "), ")("[")[0..$-2] ~ " ]" ~ `
-    }
-    "productLinks": [
-` ~ _productLinks.fold!((a, b) => a ~= "\t\tProductLink(" ~ b.website ~ ", " ~ b.url ~ ", " ~ b.price.text ~ ")\n")("") ~`\t]
-    "images": ` ~ _images.text ~ `
-    "description": ` ~ _description ~ `
-    "amount": ` ~ _amount.text ~ `
-    "link": ` ~ _link;
-    }
-private:
-    string _db, _collection; /// Database and collection
-    string _uuid;            /// uuid generated when the part is first created. 
+    tp.tags = ["changed", "#noregerts"];
+    tp.update!TestPart;
+    assert(tp.link == "Reece_Jones");
+    auto q = find!(TestPart)(tp.link);
+    assert(q.tags == ["changed", "#noregerts"]);
 }
